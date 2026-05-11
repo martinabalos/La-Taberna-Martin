@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>La Taberna</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f9f8f6; min-height: 100vh; }
+    input, button { font-family: inherit; }
+    :root {
+      --color-text-primary: #1a1a1a;
+      --color-text-secondary: #666;
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f1f0ea;
+      --color-border-tertiary: rgba(0,0,0,0.12);
+      --color-border-secondary: rgba(0,0,0,0.25);
+      --border-radius-md: 8px;
+      --border-radius-lg: 12px;
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+const CATEGORIES = [
+  { name: "Música", emoji: "🎵", color: "#7F77DD", bg: "#EEEDFE", text: "#3C3489" },
+  { name: "Cine, TV y Teatro", emoji: "🎬", color: "#D4537E", bg: "#FBEAF0", text: "#72243E" },
+  { name: "Deportes", emoji: "⚽", color: "#1D9E75", bg: "#E1F5EE", text: "#085041" },
+  { name: "Geografía", emoji: "🌍", color: "#378ADD", bg: "#E6F1FB", text: "#0C447C" },
+  { name: "Ciencia y Tecnología", emoji: "🔬", color: "#639922", bg: "#EAF3DE", text: "#27500A" },
+  { name: "Historia", emoji: "📚", color: "#BA7517", bg: "#FAEEDA", text: "#633806" },
+  { name: "Gastronomía", emoji: "🍕", color: "#D85A30", bg: "#FAECE7", text: "#712B13" },
+  { name: "Diccionario", emoji: "📖", color: "#888780", bg: "#F1EFE8", text: "#444441" },
+];
+
+const DIFFICULTIES = ["Fácil", "Media", "Difícil"];
+const DICE_FACES = ["⚀","⚁","⚂","⚃","⚄","⚅"];
+
+const btn = (bg, color, extra = {}) => ({
+  padding: "14px", borderRadius: 18, border: "none", fontSize: 15,
+  fontWeight: 500, cursor: "pointer", background: bg, color,
+  boxShadow: `0 6px 20px ${bg}55`, transition: "transform 0.15s, box-shadow 0.15s",
+  width: "100%", ...extra
+});
+
+const card = (extra = {}) => ({
+  background: "var(--color-background-primary)",
+  borderRadius: 24, border: "0.5px solid var(--color-border-tertiary)",
+  boxShadow: "0 8px 32px rgba(0,0,0,0.08)", padding: "1.25rem", ...extra
+});
+
+function App() {
+  const [screen, setScreen] = React.useState("home");
+  const [players, setPlayers] = React.useState([
+    { name: "", color: "#7F77DD" },
+    { name: "", color: "#D4537E" },
+  ]);
+  const [currentPlayer, setCurrentPlayer] = React.useState(0);
+  const [difficulty, setDifficulty] = React.useState("Media");
+  const [diceValue, setDiceValue] = React.useState(1);
+  const [rolling, setRolling] = React.useState(false);
+  const [useDice, setUseDice] = React.useState(false);
+  const [selectedCategory, setSelectedCategory] = React.useState(null);
+  const [question, setQuestion] = React.useState(null);
+  const [loadingQ, setLoadingQ] = React.useState(false);
+  const [revealed, setRevealed] = React.useState(false);
+  const [resultCorrect, setResultCorrect] = React.useState(null);
+
+  function addPlayer() {
+    if (players.length < 6) setPlayers([...players, { name: "", color: "#378ADD" }]);
+  }
+  function removePlayer(i) {
+    if (players.length > 2) setPlayers(players.filter((_, idx) => idx !== i));
+  }
+  function updatePlayer(i, field, val) {
+    const p = [...players]; p[i][field] = val; setPlayers(p);
+  }
+
+  function rollDice() {
+    if (rolling) return;
+    setRolling(true);
+    let count = 0;
+    const iv = setInterval(() => {
+      setDiceValue(Math.ceil(Math.random() * 6));
+      count++;
+      if (count > 12) {
+        clearInterval(iv);
+        setDiceValue(Math.ceil(Math.random() * 6));
+        setRolling(false);
+      }
+    }, 80);
+  }
+
+  async function fetchQuestion(cat) {
+    setSelectedCategory(cat);
+    setLoadingQ(true);
+    setQuestion(null);
+    setRevealed(false);
+    setScreen("question");
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `Genera una pregunta de trivia de dificultad ${difficulty} sobre la categoría "${cat.name}". Responde SOLO con un JSON válido sin markdown: {"pregunta":"...","respuesta":"...","explicacion":"..."}`
+          }]
+        })
+      });
+      const data = await res.json();
+      const text = data.content.map(b => b.text || "").join("").replace(/```json|```/g, "").trim();
+      setQuestion(JSON.parse(text));
+    } catch {
+      setQuestion({ pregunta: "Error al cargar la pregunta. Intentá de nuevo.", respuesta: "—", explicacion: "" });
+    }
+    setLoadingQ(false);
+  }
+
+  function handleResult(correct) {
+    setResultCorrect(correct);
+    setScreen("result");
+  }
+
+  function nextTurn(stay) {
+    if (!stay) setCurrentPlayer((currentPlayer + 1) % players.length);
+    setScreen("game");
+    setSelectedCategory(null);
+    setQuestion(null);
+    setRevealed(false);
+    setResultCorrect(null);
+  }
+
+  const player = players[currentPlayer];
+  const pName = player?.name || `Jugador ${currentPlayer + 1}`;
+
+  if (screen === "home") return (
+    <div style={{ padding: "2.5rem 1.5rem", maxWidth: 400, margin: "0 auto", textAlign: "center" }}>
+      <div style={{ fontSize: 72, marginBottom: 12, filter: "drop-shadow(0 8px 16px rgba(0,0,0,0.15))" }}>🍺</div>
+      <h1 style={{ fontSize: 32, fontWeight: 500, margin: "0 0 6px", color: "var(--color-text-primary)", letterSpacing: -0.5 }}>La Taberna</h1>
+      <p style={{ color: "var(--color-text-secondary)", marginBottom: "2.5rem", fontSize: 15 }}>Trivia con preguntas generadas por IA</p>
+      <button onClick={() => setScreen("setup")} style={btn("#7F77DD", "#fff", { marginBottom: 24, fontSize: 16 })}>Comenzar partida</button>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+        {CATEGORIES.map(c => (
+          <div key={c.name} style={{
+            background: c.bg, borderRadius: 20, padding: "14px 10px",
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+            boxShadow: `0 4px 16px ${c.color}33`, border: `1.5px solid ${c.color}44`
+          }}>
+            <span style={{ fontSize: 28 }}>{c.emoji}</span>
+            <span style={{ fontSize: 12, fontWeight: 500, color: c.text, lineHeight: 1.3, textAlign: "center" }}>{c.name}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  if (screen === "setup") return (
+    <div style={{ padding: "1.5rem", maxWidth: 400, margin: "0 auto" }}>
+      <button onClick={() => setScreen("home")} style={{ background: "none", border: "none", color: "var(--color-text-secondary)", fontSize: 14, cursor: "pointer", marginBottom: 20, padding: 0 }}>← Volver</button>
+      <h2 style={{ fontSize: 22, fontWeight: 500, marginBottom: "1.5rem", color: "var(--color-text-primary)" }}>Configurar partida</h2>
+      <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 10, fontWeight: 500, letterSpacing: 0.5 }}>JUGADORES</p>
+      {players.map((p, i) => (
+        <div key={i} style={{ ...card({ marginBottom: 10, padding: "10px 14px" }), display: "flex", alignItems: "center", gap: 10 }}>
+          <input type="color" value={p.color} onChange={e => updatePlayer(i, "color", e.target.value)}
+            style={{ width: 34, height: 34, borderRadius: "50%", border: "none", padding: 0, cursor: "pointer", background: "none", flexShrink: 0 }} />
+          <input type="text" placeholder={`Jugador ${i + 1}`} value={p.name}
+            onChange={e => updatePlayer(i, "name", e.target.value)}
+            style={{ flex: 1, border: "none", outline: "none", fontSize: 15, color: "var(--color-text-primary)", background: "transparent" }} />
+          {players.length > 2 && (
+            <button onClick={() => removePlayer(i)} style={{ background: "none", border: "none", color: "var(--color-text-secondary)", fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 0 }}>×</button>
+          )}
+        </div>
+      ))}
+      {players.length < 6 && (
+        <button onClick={addPlayer} style={{ width: "100%", padding: "12px", borderRadius: 18, marginBottom: "1.5rem", background: "none", border: "1.5px dashed var(--color-border-secondary)", color: "var(--color-text-secondary)", fontSize: 14, cursor: "pointer" }}>+ Agregar jugador</button>
+      )}
+      <p style={{ fontSize: 12, color: "var(--color-text-secondary)", marginBottom: 10, fontWeight: 500, letterSpacing: 0.5 }}>DIFICULTAD</p>
+      <div style={{ display: "flex", gap: 10, marginBottom: "2rem" }}>
+        {DIFFICULTIES.map(d => (
+          <button key={d} onClick={() => setDifficulty(d)} style={{
+            flex: 1, padding: "12px 4px", borderRadius: 16, fontSize: 14, cursor: "pointer",
+            border: "none", fontWeight: 500,
+            background: difficulty === d ? "#7F77DD" : "var(--color-background-secondary)",
+            color: difficulty === d ? "#fff" : "var(--color-text-secondary)",
+            boxShadow: difficulty === d ? "0 4px 16px #7F77DD55" : "none",
+            transition: "all 0.2s"
+          }}>{d}</button>
+        ))}
+      </div>
+      <button onClick={() => { setCurrentPlayer(0); setScreen("game"); }} style={btn("#7F77DD", "#fff", { fontSize: 16 })}>¡A jugar!</button>
+    </div>
+  );
+
+  if (screen === "game") return (
+    <div style={{ padding: "1.5rem", maxWidth: 400, margin: "0 auto" }}>
+      <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
+        <p style={{ color: "var(--color-text-secondary)", fontSize: 13, margin: "0 0 4px" }}>Turno de</p>
+        <p style={{ fontSize: 22, fontWeight: 500, color: player.color, margin: 0 }}>{pName}</p>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: "1.25rem" }}>
+        <span style={{ fontSize: 13, color: !useDice ? "#0C447C" : "var(--color-text-secondary)", fontWeight: !useDice ? 500 : 400 }}>Dado físico</span>
+        <div onClick={() => setUseDice(u => !u)} style={{
+          width: 46, height: 26, borderRadius: 13, cursor: "pointer", transition: "background 0.2s",
+          background: useDice ? "#7F77DD" : "#E6F1FB",
+          border: "0.5px solid var(--color-border-tertiary)", position: "relative", flexShrink: 0,
+          boxShadow: useDice ? "0 2px 10px #7F77DD44" : "none"
+        }}>
+          <div style={{
+            position: "absolute", top: 3, left: useDice ? 23 : 3,
+            width: 20, height: 20, borderRadius: "50%", background: "#fff",
+            boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s"
+          }} />
+        </div>
+        <span style={{ fontSize: 13, color: useDice ? "#7F77DD" : "var(--color-text-secondary)", fontWeight: useDice ? 500 : 400 }}>Dado digital</span>
+      </div>
+      {useDice && (
+        <div style={{ ...card({ textAlign: "center", marginBottom: "1.5rem", padding: "2rem" }) }}>
+          <div style={{ fontSize: 72, lineHeight: 1, marginBottom: 20, filter: rolling ? "blur(3px)" : "none", transition: "filter 0.1s" }}>
+            {DICE_FACES[diceValue - 1]}
+          </div>
+          <button onClick={rollDice} disabled={rolling} style={btn(rolling ? "var(--color-background-secondary)" : player.color, rolling ? "var(--color-text-secondary)" : "#fff")}>
+            {rolling ? "Tirando..." : "Tirar dados"}
+          </button>
+        </div>
+      )}
+      {(!useDice || !rolling) && (
+        <>
+          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", marginBottom: 14, textAlign: "center" }}>Elegí una categoría</p>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 14 }}>
+            {CATEGORIES.map(c => (
+              <button key={c.name} onClick={() => fetchQuestion(c)} style={{
+                padding: "20px 10px", borderRadius: 22,
+                background: c.bg, border: `2px solid ${c.color}44`,
+                color: c.text, fontSize: 13, fontWeight: 500, cursor: "pointer",
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+                boxShadow: `0 6px 20px ${c.color}33`, transition: "transform 0.15s, box-shadow 0.15s"
+              }}
+              onMouseEnter={e => { e.currentTarget.style.transform="scale(1.05)"; e.currentTarget.style.boxShadow=`0 10px 28px ${c.color}55`; }}
+              onMouseLeave={e => { e.currentTarget.style.transform="scale(1)"; e.currentTarget.style.boxShadow=`0 6px 20px ${c.color}33`; }}
+              >
+                <span style={{ fontSize: 34 }}>{c.emoji}</span>
+                <span style={{ lineHeight: 1.3, textAlign: "center" }}>{c.name}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  if (screen === "question") return (
+    <div style={{ padding: "1.5rem", maxWidth: 400, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: "1.5rem" }}>
+        <div style={{
+          width: 52, height: 52, borderRadius: 16, background: selectedCategory?.bg,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
+          boxShadow: `0 4px 16px ${selectedCategory?.color}44`
+        }}>{selectedCategory?.emoji}</div>
+        <div>
+          <p style={{ fontSize: 12, color: "var(--color-text-secondary)", margin: 0 }}>{selectedCategory?.name} · {difficulty}</p>
+          <p style={{ fontSize: 15, fontWeight: 500, color: player.color, margin: 0 }}>{pName}</p>
+        </div>
+      </div>
+      <div style={{
+        borderRadius: 24, padding: "1.5rem", marginBottom: "1.25rem", minHeight: 120,
+        background: selectedCategory?.bg, border: `2px solid ${selectedCategory?.color}44`,
+        boxShadow: `0 8px 28px ${selectedCategory?.color}33`
+      }}>
+        {loadingQ
+          ? <p style={{ color: selectedCategory?.text, fontSize: 15, textAlign: "center", opacity: 0.7, margin: 0 }}>Generando pregunta...</p>
+          : <p style={{ fontSize: 16, color: selectedCategory?.text, fontWeight: 500, margin: 0, lineHeight: 1.6 }}>{question?.pregunta}</p>
+        }
+      </div>
+      {!loadingQ && !revealed && (
+        <button onClick={() => setRevealed(true)} style={btn("var(--color-background-secondary)", "var(--color-text-primary)", { boxShadow: "0 4px 16px rgba(0,0,0,0.08)" })}>
+          Ver respuesta
+        </button>
+      )}
+      {revealed && question && (
+        <>
+          <div style={{ borderRadius: 20, padding: "1.25rem", marginBottom: 14, background: "#E1F5EE", border: "1.5px solid #1D9E7544", boxShadow: "0 4px 20px #1D9E7533" }}>
+            <p style={{ fontSize: 11, color: "#085041", margin: "0 0 6px", fontWeight: 500, letterSpacing: 0.5 }}>RESPUESTA</p>
+            <p style={{ fontSize: 17, color: "#085041", margin: 0, fontWeight: 500 }}>{question.respuesta}</p>
+            {question.explicacion ? <p style={{ fontSize: 13, color: "#0F6E56", margin: "8px 0 0", lineHeight: 1.5 }}>{question.explicacion}</p> : null}
+          </div>
+          <p style={{ fontSize: 14, color: "var(--color-text-secondary)", textAlign: "center", marginBottom: 12 }}>¿{pName} acertó?</p>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button onClick={() => handleResult(true)} style={btn("#1D9E75", "#fff", { flex: 1 })}>✓ Acertó</button>
+            <button onClick={() => handleResult(false)} style={btn("#E24B4A", "#fff", { flex: 1 })}>✗ Falló</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  if (screen === "result") return (
+    <div style={{ padding: "2.5rem 1.5rem", maxWidth: 400, margin: "0 auto", textAlign: "center" }}>
+      <div style={{ fontSize: 80, marginBottom: 16, filter: "drop-shadow(0 8px 20px rgba(0,0,0,0.15))" }}>
+        {resultCorrect ? "🎉" : "😅"}
+      </div>
+      <div style={{ ...card({ marginBottom: "1.5rem", padding: "1.5rem" }) }}>
+        <h2 style={{ fontSize: 24, fontWeight: 500, color: resultCorrect ? "#1D9E75" : "#E24B4A", margin: "0 0 8px" }}>
+          {resultCorrect ? "¡Correcto!" : "¡Falló!"}
+        </h2>
+        <p style={{ color: "var(--color-text-secondary)", margin: 0, fontSize: 15 }}>
+          {resultCorrect ? `${pName} vuelve a tirar los dados.` : `Le toca al siguiente jugador.`}
+        </p>
+      </div>
+      <button onClick={() => nextTurn(resultCorrect)} style={btn(resultCorrect ? "#1D9E75" : "#7F77DD", "#fff", { marginBottom: 12, fontSize: 16 })}>
+        {resultCorrect ? "Volver a tirar" : "Siguiente jugador"}
+      </button>
+      <button onClick={() => setScreen("home")} style={{ background: "none", border: "none", color: "var(--color-text-secondary)", fontSize: 14, cursor: "pointer" }}>
+        Terminar partida
+      </button>
+    </div>
+  );
+}
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>
